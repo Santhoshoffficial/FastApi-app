@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases
+*.sqlite3
+*.db
+*.sql
+*.dump
+
+# Virtual env
+.venv/
+env/
+venv/
+
+# Environment variables
+.env
+*.env
+
+# IDEs
+.vscode/
+.idea/
+
+# Alembic cache
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
+
+# Logs
+*.log
+
+# Byte-compiled
+*.egg-info/
+.eggs/
+dist/
+build/
