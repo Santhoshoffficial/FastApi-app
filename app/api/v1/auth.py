@@ -1,37 +1,51 @@
+# app/api/v1/auth.py
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Set
 
-
-from app import models, crud, schemas
-from app.schemas import auth as auth_schemas
-
+from app.crud import users as crud_users
+from app.schemas.auth import Token
 from app.db.session import get_db
-
 from app.core import security, config
 
 router = APIRouter()
 
-@router.post("/login", response_model=schemas.auth.Token)
-def login(
+# In-memory token blacklist (use Redis/DB for production)
+blacklisted_tokens: Set[str] = set()
+
+
+@router.post("/login", response_model=Token, summary="User login")
+async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    user = crud.users.get_by_username(db, username=form_data.username)
-    if not user or not security.verify_password(form_data.password, user.hashed_password):
+    """
+    Authenticate user and return a JWT access token.
+    """
+    user = await crud_users.authenticate(db, email=form_data.username, password=form_data.password)
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    access_token_expires = timedelta(minutes=config.settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
-        subject=user.username,
-        expires_delta=access_token_expires,
+        subject=user.email,
+        expires_delta=timedelta(minutes=config.settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/logout")
-def logout():
-    # With JWT, "logout" is usually handled on the client side by deleting the token.
-    # If you want server-side invalidation, maintain a blacklist of tokens in DB/Redis.
+@router.post("/logout", summary="User logout (JWT invalidation)")
+async def logout(token: str = Depends(security.oauth2_scheme)):
+    """
+    Logout the current user by blacklisting the JWT token.
+    """
+    blacklisted_tokens.add(token)
     return {"msg": "Successfully logged out"}
+
+
+# Dependency to verify token for protected routes
+async def verify_token(token: str = Depends(security.oauth2_scheme)):
+    if token in blacklisted_tokens:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+    return token
